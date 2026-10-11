@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartCanteen</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-dark bg-dark mb-3">
+  <div class="container" style="max-width:720px">
+    <span class="navbar-brand">🍱 SmartCanteen</span>
+    <span class="small text-white-50">{{ user_name }} · <a class="text-white-50" href="/logout">Log out</a></span>
+  </div>
+</nav>
+
+<div class="container pb-5" style="max-width:720px">
+  <div id="alert"></div>
+
+  <!-- Order confirmation view -->
+  <div id="orderView" class="d-none text-center">
+    <div class="card"><div class="card-body">
+      <h4>Order #<span id="oId"></span></h4>
+      <div class="mb-2">Status: <span id="oStatus" class="badge bg-primary fs-6"></span></div>
+      <img id="oQr" alt="QR code" class="my-2" style="width:200px;height:200px">
+      <div class="text-muted small">Show this QR at the counter when your order is Ready.</div>
+      <div class="mt-2">Total: <strong>₹<span id="oTotal"></span></strong> · Pickup: <strong id="oSlot"></strong></div>
+      <button class="btn btn-outline-secondary mt-3" onclick="location.reload()">Place another order</button>
+    </div></div>
+  </div>
+
+  <!-- Shopping view -->
+  <div id="shop">
+    <h5>Menu</h5>
+    <div id="menu" class="list-group mb-3"></div>
+
+    <h5>Pickup slot</h5>
+    <div id="slots" class="row g-2 mb-3"></div>
+
+    <div class="card mb-3"><div class="card-body">
+      <h5>Cart</h5>
+      <div id="cart" class="mb-2 text-muted">Nothing yet.</div>
+      <div class="d-flex justify-content-between fw-bold"><span>Total</span><span>₹<span id="total">0</span></span></div>
+    </div></div>
+
+    <button id="placeBtn" class="btn btn-success w-100 btn-lg">Place order</button>
+  </div>
+</div>
+
+<script>
+const STUDENT_ID = {{ user_id }};   // the logged-in student
+let menu = [], slots = [], cart = {}, slotId = null, pollTimer = null;
+
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $ = id => document.getElementById(id);
+
+function showAlert(msg, type = 'danger') {
+  $('alert').innerHTML = msg ? `<div class="alert alert-${type}">${esc(msg)}</div>` : '';
+}
+
+async function loadAll() {
+  menu = await (await fetch('/api/menu')).json();
+  slots = await (await fetch('/api/slots')).json();
+  // drop cart lines that are no longer available
+  for (const id of Object.keys(cart)) {
+    const f = menu.find(m => m.food_id == id);
+    if (!f || !f.available) delete cart[id];
+    else cart[id] = Math.min(cart[id], f.stock);
+  }
+  const s = slots.find(x => x.slot_id === slotId);
+  if (!s || s.left === 0) slotId = null;
+  render();
+}
+
+function change(id, d) {
+  const f = menu.find(m => m.food_id == id);
+  const q = Math.max(0, Math.min(f.stock, (cart[id] || 0) + d));
+  if (q === 0) delete cart[id]; else cart[id] = q;
+  render();
+}
+
+function pickSlot(id) { slotId = id; render(); }
+
+function render() {
+  $('menu').innerHTML = menu.map(f => `
+    <div class="list-group-item d-flex justify-content-between align-items-center ${f.available ? '' : 'text-muted'}">
+      <div><strong>${esc(f.name)}</strong> <span class="ms-2">₹${f.price}</span>
+        <div class="small">${f.available ? f.stock + ' left' : 'Sold out'}</div></div>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-secondary" ${f.available ? '' : 'disabled'} onclick="change(${f.food_id},-1)">−</button>
+        <span class="btn btn-light disabled">${cart[f.food_id] || 0}</span>
+        <button class="btn btn-outline-secondary" ${f.available ? '' : 'disabled'} onclick="change(${f.food_id},1)">+</button>
+      </div>
+    </div>`).join('');
+
+  $('slots').innerHTML = slots.map(s => {
+    const full = s.left === 0, sel = s.slot_id === slotId;
+    return `<div class="col-6 col-md-4">
+      <button class="btn w-100 ${sel ? 'btn-primary' : full ? 'btn-outline-danger' : 'btn-outline-primary'}"
+        ${full ? 'disabled' : ''} onclick="pickSlot(${s.slot_id})">
+        ${esc(s.start_time)}–${esc(s.end_time)}<br><small>${full ? 'FULL' : s.left + ' left'}</small>
+      </button></div>`;
+  }).join('');
+
+  let total = 0, lines = [];
+  for (const [id, q] of Object.entries(cart)) {
+    const f = menu.find(m => m.food_id == id);
+    total += f.price * q;
+    lines.push(`<div class="d-flex justify-content-between"><span>${esc(f.name)} × ${q}</span><span>₹${f.price * q}</span></div>`);
+  }
+  $('cart').innerHTML = lines.length ? lines.join('') : 'Nothing yet.';
+  $('total').textContent = total;
+}
+
+$('placeBtn').onclick = async () => {
+  const items = Object.entries(cart).map(([id, q]) => ({ food_id: +id, quantity: q }));
+  if (!items.length) return showAlert('Add at least one item to your cart.', 'warning');
+  if (!slotId) return showAlert('Please select a pickup slot.', 'warning');
+  showAlert('');
+  $('placeBtn').disabled = true;
+  try {
+    const res = await fetch('/order/place', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_id: STUDENT_ID, slot_id: slotId, items })
+    });
+    const data = await res.json();
+    if (!res.ok) { showAlert(data.error || 'Could not place order.'); await loadAll(); return; }
+    const slot = slots.find(s => s.slot_id === slotId);
+    showOrder(data, slot);
+  } catch (e) {
+    showAlert('Could not reach the server.');
+  } finally {
+    $('placeBtn').disabled = false;
+  }
+};
+
+function showOrder(order, slot) {
+  $('shop').classList.add('d-none');
+  $('orderView').classList.remove('d-none');
+  $('oId').textContent = order.order_id;
+  $('oTotal').textContent = order.total_amount;
+  $('oSlot').textContent = slot ? `${slot.start_time}–${slot.end_time}` : '';
+  $('oQr').src = `/order/${order.order_id}/qr.svg`;
+  setStatus(order.status);
+  pollTimer = setInterval(async () => {
+    const r = await fetch(`/api/orders/${order.order_id}`);
+    if (r.ok) {
+      const d = await r.json();
+      setStatus(d.status);
+      if (d.status === 'COLLECTED') clearInterval(pollTimer);
+    }
+  }, 3000);
+}
+
+function setStatus(s) {
+  const colors = { PENDING: 'secondary', ACCEPTED: 'primary', PREPARING: 'warning', READY: 'success', COLLECTED: 'dark' };
+  const el = $('oStatus');
+  el.textContent = s;
+  el.className = `badge fs-6 bg-${colors[s] || 'secondary'}`;
+}
+
+loadAll();
+</script>
+</body>
+</html>

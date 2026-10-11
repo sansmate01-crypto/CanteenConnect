@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SmartCanteen Admin</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f5f7fb;color:#172033}.top{background:#172033;color:white;padding:22px 6%;display:flex;justify-content:space-between;align-items:center}.top h1{margin:0}.top a{color:white;text-decoration:none;background:#33415c;padding:9px 14px;border-radius:8px}.wrap{width:88%;max-width:1250px;margin:28px auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;margin-bottom:22px}.card{background:white;border-radius:14px;padding:20px;box-shadow:0 3px 14px #00000010}.wide{grid-column:1/-1}h2{margin-top:0}input,select{width:100%;padding:9px;border:1px solid #d8dce5;border-radius:7px;margin:4px 0 10px}button{border:0;border-radius:7px;padding:9px 12px;cursor:pointer;background:#172033;color:white}.danger{background:#b42318}.success{background:#147d4d}.muted{color:#697386}.row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:end}.food,.slot,.order{border:1px solid #e4e7ec;border-radius:10px;padding:13px;margin:10px 0}.actions{display:flex;gap:7px;flex-wrap:wrap}.toggle{display:flex;align-items:center;gap:10px}.toggle input{width:auto}.flash{padding:11px;border-radius:8px;margin-bottom:8px;background:#e9f7ef}.error{background:#fdecec}.pill{padding:4px 8px;border-radius:20px;background:#fff1d6;font-size:12px}.empty{padding:15px;color:#697386}
+@media(max-width:700px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="top"><h1>SmartCanteen Admin</h1><a href="/logout">Logout</a></header>
+<div class="wrap">
+{% with messages=get_flashed_messages(with_categories=true) %}{% for category,msg in messages %}<div class="flash {{ 'error' if category=='error' else '' }}">{{ msg }}</div>{% endfor %}{% endwith %}
+
+<div class="grid">
+<section class="card"><h2>Order Settings</h2><form method="post" action="{{ url_for('admin_update_settings_page') }}"><label class="toggle"><input type="checkbox" name="auto_accept" {% if auto_accept %}checked{% endif %}> Automatic order acceptance</label><p class="muted">ON: valid orders become ACCEPTED automatically. OFF: new orders wait for approval.</p><button class="success">Save Setting</button></form></section>
+<section class="card"><h2>Add Food</h2><form method="post" action="{{ url_for('admin_add_food') }}"><input name="name" placeholder="Food name" required><input name="category" placeholder="Category"><input name="price" type="number" step="0.01" min="0" placeholder="Price" required><input name="quantity" type="number" min="0" placeholder="Initial stock" required><button>Add Food</button></form></section>
+<section class="card"><h2>Add Pickup Slot</h2><form method="post" action="{{ url_for('admin_add_slot') }}"><input name="start_time" type="time" required><input name="end_time" type="time" required><input name="capacity" type="number" min="1" placeholder="Capacity" required><button>Add Slot</button></form></section>
+</div>
+
+<section class="card wide"><h2>Food Management</h2>
+{% for f in foods %}<div class="food"><form method="post" action="{{ url_for('admin_edit_food', food_id=f.food_id) }}"><div class="row"><div><label>Name</label><input name="name" value="{{ f.name }}" required></div><div><label>Category</label><input name="category" value="{{ f.category or '' }}"></div><div><label>Price</label><input name="price" type="number" step="0.01" min="0" value="{{ f.price }}"></div><div><label>Stock</label><input name="quantity" type="number" min="0" value="{{ f.available_quantity }}"></div></div><div class="actions"><label><input style="width:auto" type="checkbox" name="is_available" {% if f.is_available %}checked{% endif %}> Available</label><button>Save</button></form><form method="post" action="{{ url_for('admin_restock_food', food_id=f.food_id) }}"><input style="width:100px" name="amount" type="number" min="1" placeholder="+ stock"><button class="success">Restock</button></form><form method="post" action="{{ url_for('admin_delete_food', food_id=f.food_id) }}" onsubmit="return confirm('Delete this food item?')"><button class="danger">Delete</button></form></div></div>{% else %}<div class="empty">No food items.</div>{% endfor %}
+</section>
+
+<section class="card wide"><h2>Pickup Slots</h2>
+{% for s in slots %}<div class="slot"><form method="post" action="{{ url_for('admin_edit_slot', slot_id=s.slot_id) }}"><div class="row"><div><label>Start</label><input name="start_time" type="time" value="{{ s.start_time }}" required></div><div><label>End</label><input name="end_time" type="time" value="{{ s.end_time }}" required></div><div><label>Capacity</label><input name="capacity" type="number" min="{{ s.booked_count }}" value="{{ s.capacity }}" required></div><div><span class="pill">{{ s.booked_count }}/{{ s.capacity }} booked</span></div></div><div class="actions"><button>Save Slot</button></form><form method="post" action="{{ url_for('admin_delete_slot', slot_id=s.slot_id) }}" onsubmit="return confirm('Delete this slot?')"><button class="danger">Delete</button></form></div></div>{% else %}<div class="empty">No pickup slots.</div>{% endfor %}
+</section>
+
+<section class="card wide"><h2>Pending Orders</h2>
+{% for o in pending_orders %}<div class="order"><strong>Order #{{ o.order_id }}</strong> — ₹{{ '%.2f'|format(o.total_amount) }} — Slot #{{ o.slot_id }}<div class="actions" style="margin-top:10px"><form method="post" action="{{ url_for('admin_approve_order', order_id=o.order_id) }}"><button class="success">Approve</button></form><form method="post" action="{{ url_for('admin_reject_order', order_id=o.order_id) }}"><button class="danger">Reject</button></form></div></div>{% else %}<div class="empty">No pending orders.</div>{% endfor %}
+</section>
+</div>
+</body></html>
