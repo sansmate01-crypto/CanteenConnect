@@ -47,7 +47,7 @@ app = Flask(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if not DATABASE_URL:
-    DATABASE_URL = "mysql+pymysql://root:7@localhost:3306/smartcanteen"
+    DATABASE_URL = "mysql+pymysql://root:@localhost:3306/smartcanteen"
 
 
 engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
